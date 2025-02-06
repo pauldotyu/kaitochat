@@ -71,31 +71,6 @@ class Kaito(LLM):
         if stop is not None:
             raise ValueError("stop kwargs are not permitted.")
 
-        # Create the payload
-        if self.endpoint.endswith("v1/chat/completions"):
-            payload = {
-                "model": self.model_name,
-                "messages": json.loads(prompt),
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                "repetition_penalty": self.repetition_penalty,
-                "top_k": self.top_k,
-                "top_p": self.top_p,
-            }
-        else:
-            payload = {
-                "prompt": prompt,
-                "return_full_text": "false",
-                "clean_up_tokenization_spaces": "true",
-                "generate_kwargs": {
-                    "temperature": self.temperature,
-                    "max_new_tokens": self.max_tokens,
-                    "repetition_penalty": self.repetition_penalty,
-                    "top_k": self.top_k,
-                    "top_p": self.top_p,
-                },
-            }
-
         # Set the headers and URL
         headers = {"Content-Type": "application/json"}
         url = ""
@@ -104,35 +79,46 @@ class Kaito(LLM):
         else:
             raise ValueError("No endpoint provided.")
 
-        # print the request
-        print(f"Question: {payload}")
-
+        # Create the payload
+        payload = {
+            "model": self.model_name,
+            "messages": json.loads(prompt),
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "repetition_penalty": self.repetition_penalty,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+            "stream": True,
+        }
+        
         # make the request
-        response = requests.request("POST", url=url, headers=headers, json=payload)
+        response = requests.request("POST", url=url, headers=headers, json=payload, stream=True)
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if line:
+                # Decode the line and parse the json
+                decoded_line = line.decode('utf-8')
+                if decoded_line.startswith('data: '):
+                    # Remove 'data: ' prefix
+                    data = decoded_line[5:].strip()
 
-        if response.status_code == 400:
-            raise ValueError(f"Failed to generate text: {response.text}")
-        else: 
-            # print the response
-            print(f"Answer: {response.text}")
+                    # Check if it's the [DONE] signal
+                    if data == '[DONE]':
+                        break  # End the stream
 
-            if self.endpoint.endswith("v1/chat/completions"):
-                # convert the response to a JSON object
-                response_json = json.loads(response.text)
-                # get the result from the JSON object
-                response = response_json["choices"][0]["message"]["content"]
-                print(f"Content: {response}")
-                # return the response
-                return response
-            else:
-                # convert the response to a JSON object
-                response_json = json.loads(response.text)
-                # get the result from the JSON object
-                result = response_json["Result"]
-                # strip out the prompt from the result
-                response = result.replace(prompt, "")
-                # return the response
-                return response.strip()
+                    try:
+                        # Parse the JSON content
+                        chunk = json.loads(data)
+
+                        # Extract the content
+                        if 'choices' in chunk and len(chunk['choices']) > 0:
+                            delta = chunk['choices'][0]['delta']
+                            if 'content' in delta:
+                                content = delta['content']
+                                yield content
+                    except json.JSONDecodeError:
+                        print(f"Error decoding JSON: {data}")
+                        continue
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
