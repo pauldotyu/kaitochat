@@ -1,5 +1,5 @@
 # Use the official Python image as the base image
-FROM --platform=$BUILDPLATFORM python:3.13.1-slim-bookworm
+FROM --platform=$BUILDPLATFORM python:3.13.2-slim-bookworm
 
 # Set the working directory to /app
 WORKDIR /app
